@@ -1,7 +1,9 @@
 package blitzshipz
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -56,6 +58,10 @@ type Rates struct {
 		OrderID string  `json:"orderId"`
 		Rates   Pricing `json:"rates"`
 	} `json:"data"`
+	// Raw is the whole answer. The documented shapes have been wrong before
+	// (Create Order's was), so a caller that finds no courier can show what
+	// Blitzshipz actually said.
+	Raw json.RawMessage `json:"-"`
 }
 
 // Get prices one order across every available courier. Nothing is shipped and
@@ -64,16 +70,22 @@ func (s *RatesService) Get(ctx context.Context, orderID string) (*Rates, error) 
 	if strings.TrimSpace(orderID) == "" {
 		return nil, fmt.Errorf("blitzshipz: an order id is required")
 	}
-	out := &Rates{}
-	err := s.client.callJSON(ctx, requestSpec{
+	data, err := s.client.doRequest(ctx, requestSpec{
 		method:     http.MethodPost,
 		path:       "/rates",
 		body:       map[string]string{"orderId": strings.TrimSpace(orderID)},
 		repeatable: true,
-	}, out)
+	})
 	if err != nil {
 		return nil, err
 	}
+	out := &Rates{}
+	if len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, out); err != nil {
+			return nil, fmt.Errorf("blitzshipz: decoding the Get Rates answer: %w", err)
+		}
+	}
+	out.Raw = append(json.RawMessage(nil), data...)
 	return out, nil
 }
 

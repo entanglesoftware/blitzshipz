@@ -79,7 +79,14 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return printJSON(got)
+		// What Blitzshipz sent, then what the SDK made of it: the two
+		// disagreeing is the thing this command exists to show.
+		fmt.Println("# Blitzshipz answered:")
+		if err := printRaw(got.Raw); err != nil {
+			return err
+		}
+		fmt.Println("# Couriers the SDK read, cheapest first:")
+		return printJSON(got.Data.Rates.All())
 
 	case "webhooks":
 		got, err := client.Webhooks.List(ctx)

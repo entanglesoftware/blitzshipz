@@ -308,6 +308,9 @@ func TestRatesAreRetriedAndSorted(t *testing.T) {
 	if r, ok := got.Data.Rates.Find("xb"); !ok || r.TotalAmount != 64.5 {
 		t.Fatalf("Find(xb) = %+v, %v", r, ok)
 	}
+	if !strings.Contains(string(got.Raw), `"Rates retrieved successfully"`) {
+		t.Fatalf("the raw answer was not kept: %s", got.Raw)
+	}
 }
 
 func TestRetriesCanBeSwitchedOff(t *testing.T) {

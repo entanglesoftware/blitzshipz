@@ -131,11 +131,16 @@ func (r *CreateOrderResponse) UnmarshalJSON(b []byte) error {
 // Reference is the handle to pass to Get Rates, Generate AWB and Track: the
 // order id when the answer names one, otherwise the `awb` it returned.
 //
-// The first live answer named the order in none of the modelled fields, so
-// after `orderId` and `data.orderId` the whole answer is searched for a value
-// shaped like the order reference Get Rates documents (CX…/CD…), wherever it
-// sits — under a key mentioning "order" first. `awb` comes after that: the
-// documentation never says Get Rates accepts one.
+// ⚠️ **The live answer names the order only inside a sentence**:
+//
+//	{"status":200,"message":"Order created and synced successfully",
+//	 "data":{"statusCode":200,"message":"Order created successfully: CD465228",
+//	         "additionInformation":null}}
+//
+// So after `orderId` and `data.orderId` the whole answer is searched for a
+// token shaped like the order reference Get Rates documents (CX…/CD…), inside
+// any string, under a key mentioning "order" first. `awb` comes after that:
+// the documentation never says Get Rates accepts one.
 func (r *CreateOrderResponse) Reference() string {
 	if r == nil {
 		return ""
@@ -149,11 +154,12 @@ func (r *CreateOrderResponse) Reference() string {
 }
 
 // orderReference is the shape Get Rates documents for "the order reference
-// returned by Create Order": CX123456, CD….
-var orderReference = regexp.MustCompile(`^C[A-Z][0-9]{3,}$`)
+// returned by Create Order": CX123456, CD…, as a whole word.
+var orderReference = regexp.MustCompile(`\bC[A-Z][0-9]{3,}\b`)
 
-// findReference searches a JSON answer for a string shaped like an order
-// reference, preferring one under a key that mentions "order".
+// findReference searches a JSON answer for a token shaped like an order
+// reference, a value of its own or a word in a sentence, preferring one under
+// a key that mentions "order".
 func findReference(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -180,8 +186,8 @@ func findReference(raw json.RawMessage) string {
 				walk(key, item)
 			}
 		case string:
-			s := strings.TrimSpace(v)
-			if !orderReference.MatchString(s) {
+			s := orderReference.FindString(v)
+			if s == "" {
 				return
 			}
 			if underOrder == "" && strings.Contains(strings.ToLower(key), "order") {

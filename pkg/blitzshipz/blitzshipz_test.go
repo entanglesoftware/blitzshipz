@@ -119,6 +119,8 @@ func TestReferencePrefersAnOrderIDOverAnAWB(t *testing.T) {
 // fields; the reference is found by its documented shape wherever it sits.
 func TestReferenceIsFoundByItsShape(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
+		// The live answer, verbatim (2026-10-11): the id is only in a sentence.
+		{`{"status":200,"message":"Order created and synced successfully","data":{"statusCode":200,"message":"Order created successfully: CD465228","additionInformation":null}}`, "CD465228"},
 		{`{"status":200,"message":"Order created","data":{"order_id":"CX221367"}}`, "CX221367"},
 		{`{"status":200,"data":[{"orderNumber":"CD100200"}]}`, "CD100200"},
 		// Under a key mentioning "order" beats one that does not.
@@ -138,6 +140,20 @@ func TestReferenceIsFoundByItsShape(t *testing.T) {
 		if got.Reference() != tc.want {
 			t.Errorf("%s: Reference = %q, want %q", tc.body, got.Reference(), tc.want)
 		}
+	}
+}
+
+// The live answer nests its own verdict under an outer "synced" 200, so a
+// failed inner one has to count — with the inner sentence as the reason.
+func TestAFailedInnerStatusCodeIsARefusal(t *testing.T) {
+	client, _ := fake(t, func(w http.ResponseWriter, _ *http.Request, _ served) {
+		answer(w, 200, `{"status":200,"message":"Order created and synced successfully",`+
+			`"data":{"statusCode":400,"message":"Pincode not serviceable","additionInformation":null}}`)
+	})
+	_, err := client.Orders.Create(context.Background(), &Order{})
+	apiErr, answered := AsAPIError(err)
+	if !answered || apiErr.Message != "Pincode not serviceable" || apiErr.Status != 400 {
+		t.Fatalf("err = %v, want the inner refusal", err)
 	}
 }
 

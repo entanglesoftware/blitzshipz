@@ -142,13 +142,17 @@ type envelope struct {
 	Status  json.RawMessage `json:"status"`
 	Message string          `json:"message"`
 	Error   string          `json:"error"`
+	// Data is read for the inner verdict Create Order nests there:
+	// {"status":200,"data":{"statusCode":200,"message":"Order created…"}}.
+	Data json.RawMessage `json:"data"`
 }
 
 // refusal reads a response and returns the APIError it amounts to, or nil.
 //
 // A non-2xx is always a refusal. A 2xx is one when its body says so: an
-// explicit `"success": false`, a numeric `"status"` of 400 or more, or a
-// `"status"` word that means failure ("error", "failed", …).
+// explicit `"success": false`, a numeric `"status"` of 400 or more, a
+// `"status"` word that means failure ("error", "failed", …), or a
+// `data.statusCode` of 400 or more under an outer 200.
 func refusal(httpStatus int, data []byte) *APIError {
 	trimmed := bytes.TrimSpace(data)
 
@@ -162,13 +166,20 @@ func refusal(httpStatus int, data []byte) *APIError {
 			_ = json.Unmarshal(env.Status, &statusWord)
 		}
 	}
+	var inner struct {
+		StatusCode int    `json:"statusCode"`
+		Message    string `json:"message"`
+	}
+	if d := bytes.TrimSpace(env.Data); len(d) > 0 && d[0] == '{' {
+		_ = json.Unmarshal(d, &inner) // a statusCode that is not a number is ignored
+	}
 
 	ok := httpStatus >= 200 && httpStatus < 300
 	if ok && decoded {
 		if env.Success != nil && !*env.Success {
 			ok = false
 		}
-		if bodyStatus >= 400 {
+		if bodyStatus >= 400 || inner.StatusCode >= 400 {
 			ok = false
 		}
 		switch strings.ToLower(strings.TrimSpace(statusWord)) {
@@ -181,8 +192,18 @@ func refusal(httpStatus int, data []byte) *APIError {
 	}
 
 	apiErr := &APIError{HTTPStatus: httpStatus, Status: bodyStatus}
+	if apiErr.Status < 400 && inner.StatusCode >= 400 {
+		apiErr.Status = inner.StatusCode
+	}
 	if decoded {
-		apiErr.Message = strings.TrimSpace(env.Message)
+		// The inner message is the reason when the inner verdict is the
+		// refusal; the outer one only says the request was synced.
+		if inner.StatusCode >= 400 {
+			apiErr.Message = strings.TrimSpace(inner.Message)
+		}
+		if apiErr.Message == "" {
+			apiErr.Message = strings.TrimSpace(env.Message)
+		}
 		if apiErr.Message == "" {
 			apiErr.Message = strings.TrimSpace(env.Error)
 		}

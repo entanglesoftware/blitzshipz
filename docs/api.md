@@ -42,7 +42,7 @@ The misspellings `volumentricWeight` and `dropAlternative_mobile` are the API's 
 
 | SDK | Request | Body | Answer |
 |---|---|---|---|
-| `Rates.Get` | `POST /rates` | `{"orderId": "CX123456"}` | `data.rates.basePricing[]` / `advancePricing[]` of `{vendorCode, vendorName, totalAmount}` |
+| `Rates.Get` | `POST /rates` | `{"orderId": "CX123456"}` | `data.rates.basePricing[]` / `advancePricing[]` of `{vendorCode, vendorName, totalAmount}`, as documented. **Live:** `{vendorCode, amount, weight, rate, additionalRate, codCharges, rto, qcCharge, standered, weightCategory, zone}`, with no name and the price in `amount` (see below) |
 | `Rates.Bulk` | `POST /rates/bulk` | `{"orderIds": [...]}`, 1 to 50 | `data.individualRates{orderId: {basePricing}}`, `data.vendorTotalStrategy{vendorCode: total}` |
 | `Orders.GenerateAWB` | `POST /orders/{orderId}/generate-awb` | `{"vendorCode", "weight" (kg, > 0), "amount" (> 0)}` | `data.awbs{orderId: awb}`, `data.failed[{orderId, reason}]`, `data.summary` |
 | `Orders.GenerateAWBBulk` | `POST /orders/generate-awb/bulk` | `{"vendorCode", "orders": [{orderId, weight, amount}], "strategyType"?}` | same as above |
@@ -106,5 +106,16 @@ After 5 consecutive failures the webhook is switched off. `isActive: true` turns
 
    The dashboard lists `CD465228` as the ORDERID. A `data.statusCode` of 400 or more under that outer 200 is treated as a refusal, with `data.message` as the reason.
 3. **Cancel and NDR.** The path placeholder is `{orderId}`, but the documented parameter is the AWB, and the examples use a 14-digit number. The SDK names the parameter `awb`.
+4. **A courier's price.** The documentation says `totalAmount` and `vendorName`. The live answer (2026-10-11) has neither:
+
+   ```json
+   {"standered": "DIAMOND", "weightCategory": "FEATHER", "vendorCode": "DL", "amount": 97.35, "zone": "ZONED",
+    "rate": 60.18, "additionalRate": 55.46, "codCharges": 37.17, "weight": 0.5, "rto": 60.18, "qcCharge": 0}
+   ```
+
+   - `amount` is the price, here `rate` plus `codCharges`.
+   - `weight` is the billable weight it was worked out for.
+   - `VendorRate` copies `amount` into `TotalAmount` when `totalAmount` is absent, and keeps the breakdown, with `standered` read as `Standard`.
+   - No courier names are sent. `DL` is Delhivery, the documentation's own example; the others are only codes.
 4. **The "What this API does" text** on Cancel, NDR and Serviceability is Create Order's, copied over. It describes nothing about those endpoints.
 5. **Example JSON** for the bulk answers and List Webhooks is missing closing braces. The shapes above are read from the parts that are present.

@@ -14,13 +14,57 @@ import (
 type RatesService struct{ client *Client }
 
 // VendorRate is one courier's price for an order.
+//
+// ⚠️ **The live answer is not the documented one.** The documentation lists
+// `{vendorCode, vendorName, totalAmount}`. Blitzshipz sends
+//
+//	{"standered":"DIAMOND","weightCategory":"FEATHER","vendorCode":"DL",
+//	 "amount":97.35,"zone":"ZONED","rate":60.18,"additionalRate":55.46,
+//	 "codCharges":37.17,"weight":0.5,"rto":60.18,"qcCharge":0}
+//
+// with no name and the price in `amount` (here rate + COD charges). The
+// decoder copies `amount` into TotalAmount when `totalAmount` is absent, so
+// every caller reads one field whichever spelling arrived.
 type VendorRate struct {
 	// VendorCode is what GenerateAWB takes, such as "DL".
 	VendorCode string `json:"vendorCode"`
-	// VendorName is the courier's name, such as "Delhivery". The bulk answer
-	// leaves it out.
-	VendorName  string  `json:"vendorName"`
+	// VendorName is the courier's name, such as "Delhivery". Neither the live
+	// answer nor the bulk one carries it.
+	VendorName string `json:"vendorName"`
+	// TotalAmount is the price for this order, in rupees: `totalAmount` as
+	// documented, or `amount` as sent.
 	TotalAmount float64 `json:"totalAmount"`
+	// Weight is the billable weight the price was worked out for, in
+	// kilograms — the weight Generate AWB takes.
+	Weight float64 `json:"weight"`
+
+	// The breakdown, as the live answer sends it. Standard keeps the API's
+	// spelling, `standered`.
+	Rate           float64 `json:"rate"`
+	AdditionalRate float64 `json:"additionalRate"`
+	CODCharges     float64 `json:"codCharges"`
+	RTO            float64 `json:"rto"`
+	QCCharge       float64 `json:"qcCharge"`
+	Standard       string  `json:"standered"`
+	WeightCategory string  `json:"weightCategory"`
+	Zone           string  `json:"zone"`
+}
+
+// UnmarshalJSON reads a rate in either spelling of its price.
+func (r *VendorRate) UnmarshalJSON(b []byte) error {
+	type plain VendorRate
+	var v struct {
+		plain
+		Amount float64 `json:"amount"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*r = VendorRate(v.plain)
+	if r.TotalAmount == 0 {
+		r.TotalAmount = v.Amount
+	}
+	return nil
 }
 
 // Pricing is the rates for one order.

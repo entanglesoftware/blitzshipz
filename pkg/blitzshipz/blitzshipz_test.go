@@ -313,6 +313,32 @@ func TestRatesAreRetriedAndSorted(t *testing.T) {
 	}
 }
 
+// liveRates is the first live Get Rates answer (2026-10-11), cut to two
+// couriers: the price is `amount`, there is no name, and the billable weight
+// is beside it.
+const liveRates = `{"status":200,"message":"Rates retrieved successfully","data":{"orderId":"CD465228","rates":{"basePricing":[` +
+	`{"standered":"DIAMOND","weightCategory":"FEATHER","vendorCode":"DX","amount":115.05,"zone":"ZONED","rate":70.0,"additionalRate":60.0,"codCharges":45.05,"weight":0.5,"rto":70.0,"qcCharge":0},` +
+	`{"standered":"DIAMOND","weightCategory":"FEATHER","vendorCode":"DL","amount":97.35,"zone":"ZONED","rate":60.18,"additionalRate":55.46,"codCharges":37.17,"weight":0.5,"rto":60.18,"qcCharge":0}` +
+	`],"advancePricing":[]}}}`
+
+func TestRatesReadTheLiveAnswer(t *testing.T) {
+	client, _ := fake(t, func(w http.ResponseWriter, _ *http.Request, _ served) {
+		answer(w, 200, liveRates)
+	})
+	got, err := client.Rates.Get(context.Background(), "CD465228")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := got.Data.Rates.All()
+	if len(all) != 2 || all[0].VendorCode != "DL" || all[0].TotalAmount != 97.35 || all[1].TotalAmount != 115.05 {
+		t.Fatalf("All = %+v, want DL at 97.35 then DX at 115.05", all)
+	}
+	dl := all[0]
+	if dl.Weight != 0.5 || dl.CODCharges != 37.17 || dl.Rate != 60.18 || dl.Standard != "DIAMOND" {
+		t.Fatalf("DL = %+v", dl)
+	}
+}
+
 func TestRetriesCanBeSwitchedOff(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

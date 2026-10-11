@@ -1,10 +1,13 @@
 package blitzshipz
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -93,18 +96,107 @@ type CreateOrderResponse struct {
 	Raw json.RawMessage `json:"-"`
 }
 
+// UnmarshalJSON reads the answer whatever shape `data` takes.
+//
+// ⚠️ A `data` that is a list or a string must not fail the decode: Create Order
+// would then report "no answer" for an order Blitzshipz did create, and the
+// reference inside it is still found by Reference's search of Raw.
+func (r *CreateOrderResponse) UnmarshalJSON(b []byte) error {
+	type plain CreateOrderResponse
+	var loose struct {
+		plain
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(b, &loose); err != nil {
+		return err
+	}
+	*r = CreateOrderResponse(loose.plain)
+	r.Data = nil
+	if d := bytes.TrimSpace(loose.Data); len(d) > 0 && d[0] == '{' {
+		var data struct {
+			OrderID string `json:"orderId"`
+			AWB     string `json:"awb"`
+		}
+		if json.Unmarshal(d, &data) == nil {
+			r.Data = &struct {
+				OrderID string `json:"orderId"`
+				AWB     string `json:"awb"`
+			}{data.OrderID, data.AWB}
+		}
+	}
+	r.Raw = append(json.RawMessage(nil), b...)
+	return nil
+}
+
 // Reference is the handle to pass to Get Rates, Generate AWB and Track: the
 // order id when the answer names one, otherwise the `awb` it returned.
+//
+// The first live answer named the order in none of the modelled fields, so
+// after `orderId` and `data.orderId` the whole answer is searched for a value
+// shaped like the order reference Get Rates documents (CX…/CD…), wherever it
+// sits — under a key mentioning "order" first. `awb` comes after that: the
+// documentation never says Get Rates accepts one.
 func (r *CreateOrderResponse) Reference() string {
 	if r == nil {
 		return ""
 	}
-	for _, candidate := range []string{r.OrderID, r.dataField(true), r.AWB, r.dataField(false)} {
+	for _, candidate := range []string{r.OrderID, r.dataField(true), findReference(r.Raw), r.AWB, r.dataField(false)} {
 		if s := strings.TrimSpace(candidate); s != "" {
 			return s
 		}
 	}
 	return ""
+}
+
+// orderReference is the shape Get Rates documents for "the order reference
+// returned by Create Order": CX123456, CD….
+var orderReference = regexp.MustCompile(`^C[A-Z][0-9]{3,}$`)
+
+// findReference searches a JSON answer for a string shaped like an order
+// reference, preferring one under a key that mentions "order".
+func findReference(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var doc any
+	if json.Unmarshal(raw, &doc) != nil {
+		return ""
+	}
+	var underOrder, anywhere string
+	var walk func(key string, v any)
+	walk = func(key string, v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(v))
+			for k := range v {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(k, v[k])
+			}
+		case []any:
+			for _, item := range v {
+				walk(key, item)
+			}
+		case string:
+			s := strings.TrimSpace(v)
+			if !orderReference.MatchString(s) {
+				return
+			}
+			if underOrder == "" && strings.Contains(strings.ToLower(key), "order") {
+				underOrder = s
+			}
+			if anywhere == "" {
+				anywhere = s
+			}
+		}
+	}
+	walk("", doc)
+	if underOrder != "" {
+		return underOrder
+	}
+	return anywhere
 }
 
 func (r *CreateOrderResponse) dataField(orderID bool) string {

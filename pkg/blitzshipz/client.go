@@ -147,7 +147,8 @@ type envelope struct {
 // refusal reads a response and returns the APIError it amounts to, or nil.
 //
 // A non-2xx is always a refusal. A 2xx is one when its body says so: an
-// explicit `"success": false`, or a numeric `"status"` of 400 or more.
+// explicit `"success": false`, a numeric `"status"` of 400 or more, or a
+// `"status"` word that means failure ("error", "failed", …).
 func refusal(httpStatus int, data []byte) *APIError {
 	trimmed := bytes.TrimSpace(data)
 
@@ -155,8 +156,11 @@ func refusal(httpStatus int, data []byte) *APIError {
 	decoded := len(trimmed) > 0 && trimmed[0] == '{' && json.Unmarshal(trimmed, &env) == nil
 
 	bodyStatus := 0
+	statusWord := ""
 	if decoded && len(env.Status) > 0 {
-		_ = json.Unmarshal(env.Status, &bodyStatus) // a string status is ignored
+		if json.Unmarshal(env.Status, &bodyStatus) != nil {
+			_ = json.Unmarshal(env.Status, &statusWord)
+		}
 	}
 
 	ok := httpStatus >= 200 && httpStatus < 300
@@ -165,6 +169,10 @@ func refusal(httpStatus int, data []byte) *APIError {
 			ok = false
 		}
 		if bodyStatus >= 400 {
+			ok = false
+		}
+		switch strings.ToLower(strings.TrimSpace(statusWord)) {
+		case "error", "fail", "failed", "failure":
 			ok = false
 		}
 	}

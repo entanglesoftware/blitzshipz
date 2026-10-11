@@ -115,6 +115,43 @@ func TestReferencePrefersAnOrderIDOverAnAWB(t *testing.T) {
 	}
 }
 
+// The first live Create Order answer named the order in none of the modelled
+// fields; the reference is found by its documented shape wherever it sits.
+func TestReferenceIsFoundByItsShape(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{`{"status":200,"message":"Order created","data":{"order_id":"CX221367"}}`, "CX221367"},
+		{`{"status":200,"data":[{"orderNumber":"CD100200"}]}`, "CD100200"},
+		// Under a key mentioning "order" beats one that does not.
+		{`{"status":200,"data":{"a":"CX111111","orderRef":"CX222222"}}`, "CX222222"},
+		// The awb stays the last resort.
+		{`{"success":true,"awb":"ATPRE137180","data":{"ref":"CX333333"}}`, "CX333333"},
+		{`{"success":true,"awb":"ATPRE137180"}`, "ATPRE137180"},
+		{`{"status":200,"message":"Order created"}`, ""},
+	} {
+		client, _ := fake(t, func(w http.ResponseWriter, _ *http.Request, _ served) {
+			answer(w, 200, tc.body)
+		})
+		got, err := client.Orders.Create(context.Background(), &Order{})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.body, err)
+		}
+		if got.Reference() != tc.want {
+			t.Errorf("%s: Reference = %q, want %q", tc.body, got.Reference(), tc.want)
+		}
+	}
+}
+
+func TestAStatusWordOfFailureInsideA200IsARefusal(t *testing.T) {
+	client, _ := fake(t, func(w http.ResponseWriter, _ *http.Request, _ served) {
+		answer(w, 200, `{"status":"error","message":"Warehouse Not Found"}`)
+	})
+	_, err := client.Orders.Create(context.Background(), &Order{})
+	apiErr, answered := AsAPIError(err)
+	if !answered || apiErr.Message != "Warehouse Not Found" {
+		t.Fatalf("err = %v, want the refusal with its message", err)
+	}
+}
+
 // ⚠️ The property that matters most in the package: an order is never created
 // twice because a server had a bad moment.
 func TestCreatingAnOrderIsNeverRetried(t *testing.T) {

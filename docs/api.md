@@ -94,8 +94,8 @@ After 5 consecutive failures the webhook is switched off. `isActive: true` turns
 
 ## Where the documentation is unclear
 
-1. **Two answer dialects.** The order endpoints answer `"success": true`, while rates, AWB and webhooks answer `"status": 200`. The SDK reads both. A 2xx whose body says `success: false` or `status >= 400` is treated as a refusal.
-2. **What names an order.** Create Order's example answer carries `awb: "ATPRE137180"`. Get Rates asks for "the order reference returned by Create Order (CX…/CD…)". The getting-started example tracks `ATPRE123456`. `CreateOrderResponse.Reference()` picks `orderId`, then `data.orderId`, then `awb`. **Check this against a live answer.**
+1. **Two answer dialects.** The order endpoints answer `"success": true`, while rates, AWB and webhooks answer `"status": 200`. The SDK reads both. A 2xx whose body says `success: false`, `status >= 400`, or a `status` word such as `"error"` or `"failed"` is treated as a refusal.
+2. **What names an order.** Create Order's example answer carries `awb: "ATPRE137180"`. Get Rates asks for "the order reference returned by Create Order (CX…/CD…)". The getting-started example tracks `ATPRE123456`. `CreateOrderResponse.Reference()` picks `orderId`, then `data.orderId`, then any `CX…`/`CD…` value anywhere in the answer (one under a key mentioning "order" first), then `awb`. The first live answer (2026-10-11) named the order in none of `orderId`, `data.orderId` or `awb`, which is why the search exists. `data` may be any shape without failing the decode. **Its real shape is still to be recorded here.**
 3. **Cancel and NDR.** The path placeholder is `{orderId}`, but the documented parameter is the AWB, and the examples use a 14-digit number. The SDK names the parameter `awb`.
 4. **The "What this API does" text** on Cancel, NDR and Serviceability is Create Order's, copied over. It describes nothing about those endpoints.
 5. **Example JSON** for the bulk answers and List Webhooks is missing closing braces. The shapes above are read from the parts that are present.
